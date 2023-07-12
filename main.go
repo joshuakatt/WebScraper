@@ -2,29 +2,58 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"time"
+
 	"github.com/gocolly/colly/v2"
-	"net/smtp"
+)
+
+var (
+	previousData string
+	quit         = make(chan struct{})
 )
 
 func main() {
-	// Email configuration
-	smtpHost := "smtp.example.com"
-	smtpPort := 587
-	smtpUsername := "your-email@example.com"
-	smtpPassword := "your-password"
-	sender := "your-email@example.com"
-	recipient := "recipient@example.com"
+	// Start the background goroutine to periodically scrape the page
+	ticker := time.NewTicker(1 * time.Minute) // Adjust the interval as per your requirement
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
 
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				scrapePage()
+			case <-quit:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+
+	// Wait for the "quit" signal to stop the program
+	<-stop
+	close(quit)
+}
+
+func scrapePage() {
 	// Create a new collector instance
 	c := colly.NewCollector()
 
 	// Define a callback for monitoring changes
 	c.OnHTML("body", func(e *colly.HTMLElement) {
-		// Perform comparison with previous data to detect updates
-		// If there's an update, send an email notification
-		// You can customize the comparison logic based on your specific requirements
-		// Here's a simple example that always sends an email when the callback is triggered
-		sendEmailNotification(smtpHost, smtpPort, smtpUsername, smtpPassword, sender, recipient)
+		// Extract the current data from the webpage
+		currentData := e.Text
+
+		// Compare the current data with the previous data
+		if currentData != previousData {
+			// If there's an update, inform the user in the terminal
+			fmt.Println("There's an update on the monitored website!")
+
+			// Update the previous data with the current data for future comparisons
+			previousData = currentData
+		}
 	})
 
 	// Set up error handling
@@ -32,28 +61,6 @@ func main() {
 		fmt.Println("Request URL:", r.Request.URL, "failed with response:", r, "\nError:", err)
 	})
 
-	// Start the scraping process
-	c.Visit("https://example.com")
-}
-
-func sendEmailNotification(smtpHost string, smtpPort int, smtpUsername string, smtpPassword string, sender string, recipient string) {
-	// Compose the email content
-	subject := "Web Scraper Update Notification"
-	body := "There's an update on the monitored website!"
-
-	// Set up the SMTP client
-	auth := smtp.PlainAuth("", smtpUsername, smtpPassword, smtpHost)
-
-	// Compose the email message
-	message := []byte("Subject: " + subject + "\r\n" +
-		"\r\n" +
-		body + "\r\n")
-
-	// Send the email
-	err := smtp.SendMail(smtpHost+":"+fmt.Sprint(smtpPort), auth, sender, []string{recipient}, message)
-	if err != nil {
-		fmt.Println("Failed to send email:", err)
-	} else {
-		fmt.Println("Email notification sent successfully")
-	}
+	// Visit the webpage
+	c.Visit("https://www.wikipedia.org/")
 }
