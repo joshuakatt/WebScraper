@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gocolly/colly/v2"
 )
 
@@ -32,28 +35,41 @@ func main() {
 		}
 	}()
 
+	// Set up the Gin router
+	router := gin.Default()
+
+	// Serve static files
+	router.Static("/static", "./static")
+
+	// Define the API endpoint for scraping
+	router.GET("/api/scrape", handleScrape)
+
+	// Serve the UI
+	router.LoadHTMLGlob("templates/*")
+	router.GET("/", handleIndex)
+
+	// Start the server
+	err := router.Run(":8080")
+	if err != nil {
+		log.Fatal("Server failed to start:", err)
+	}
+
 	// Wait for the "quit" signal to stop the program
 	<-stop
 	close(quit)
 }
 
-func scrapePage() {
+func scrapePage() string {
 	// Create a new collector instance
 	c := colly.NewCollector()
+
+	// Variable to store the scraped data
+	var currentData string
 
 	// Define a callback for monitoring changes
 	c.OnHTML("body", func(e *colly.HTMLElement) {
 		// Extract the current data from the webpage
-		currentData := e.Text
-
-		// Compare the current data with the previous data
-		if currentData != previousData {
-			// If there's an update, inform the user in the terminal
-			fmt.Println("There's an update on the monitored website!")
-
-			// Update the previous data with the current data for future comparisons
-			previousData = currentData
-		}
+		currentData = e.Text
 	})
 
 	// Set up error handling
@@ -63,4 +79,15 @@ func scrapePage() {
 
 	// Visit the webpage
 	c.Visit("https://www.wikipedia.org/")
+
+	return currentData
+}
+
+func handleIndex(c *gin.Context) {
+	c.HTML(http.StatusOK, "index.html", nil)
+}
+
+func handleScrape(c *gin.Context) {
+	data := scrapePage()
+	c.JSON(http.StatusOK, gin.H{"data": data})
 }
